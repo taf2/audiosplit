@@ -22,6 +22,7 @@ chunks = Dir["#{path}/#{root_name}*.wav.chunk*"].sort_by do|wave|
   wave.gsub(/.*\.chunk/,'').to_i
 end
 
+=begin
 # basically if the numbers in the sequence follow group them into a combinded array
 combinded = []
 chunks.each do|chunk|
@@ -46,18 +47,23 @@ combinded.each_with_index do|sequence, i|
 end
 
 #exit
+=end
 
 #Dir["#{path}/#{root_name}*.wav.chunk*"].sort_by do|wave|
 #  wave.gsub(/.*\.chunk/,'').to_i
 #end.each do|wave|
 #  puts wave.inspect
 #  chunk_file = wave.gsub(/\.wav/,'') + ".wav"
-sequences.each do|chunk_file|
+#sequences.each do|chunk_file|
+chunks.each do|wave|
+  puts wave.inspect
+  chunk_file = wave.gsub(/\.wav/,'') + ".wav"
+  system("mv #{wave} #{chunk_file}")
   system("speech2text #{chunk_file}")
   wave_text = chunk_file.gsub(/\.wav$/,'.json')
   if File.exist?(wave_text)
     out = JSON.parse(File.read(wave_text))
-    if out && out['captured_json']
+    if out && out['captured_json'] && out['captured_json'].first
       results << out['captured_json'].first.first
       confidence += out['confidence']
       count += 1
