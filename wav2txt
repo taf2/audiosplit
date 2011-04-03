@@ -1,0 +1,40 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'json'
+
+if ARGV.size == 0
+  puts "usage #{$0} input.wav"
+  exit 1
+end
+
+input = ARGV[0]
+
+system("./splitter  #{input}")
+path = File.dirname(input)
+
+results = []
+confidence = 0
+count = 0
+
+Dir["#{path}/*.wav.chunk*"].sort_by do|wave|
+  wave.gsub(/.*\.chunk/,'').to_i
+end.each do|wave|
+  puts wave.inspect
+  chunk_file = wave.gsub(/\.wav/,'') + ".wav"
+  puts "#{wave} -> #{chunk_file}"
+  system("mv #{wave} #{chunk_file}")
+  system("speech2text #{chunk_file}")
+  wave_text = chunk_file.gsub(/\.wav$/,'.json')
+  if File.exist?(wave_text)
+    out = JSON.parse(File.read(wave_text))
+    if out && out['captured_json']
+      results << out['captured_json'].first.first
+      confidence += out['confidence']
+      count += 1
+    end
+  end
+end
+
+confidence /= count
+puts results.join(" ")
+puts confidence
