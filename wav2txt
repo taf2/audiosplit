@@ -17,22 +17,42 @@ confidence = 0
 count = 0
 root_name = File.basename(input).gsub(/\.wav$/,'')
 
-puts Dir["#{path}/#{root_name}*.wav.chunk*"].inspect
 # it's important that contiguous chunks stay connected otherwise partial words might be sent for transcribing
 chunks = Dir["#{path}/#{root_name}*.wav.chunk*"].sort_by do|wave|
   wave.gsub(/.*\.chunk/,'').to_i
 end
-puts chunks.inspect
 
-exit
+# basically if the numbers in the sequence follow group them into a combinded array
+combinded = []
+chunks.each do|chunk|
+  num = chunk.gsub(/.*\.chunk/,'').to_i
+  if combinded.last && (combinded.last.last+1) == num
+    combinded.last << num
+  else
+    combinded << [num]
+  end
+end
 
-Dir["#{path}/#{root_name}*.wav.chunk*"].sort_by do|wave|
-  wave.gsub(/.*\.chunk/,'').to_i
-end.each do|wave|
-  puts wave.inspect
-  chunk_file = wave.gsub(/\.wav/,'') + ".wav"
-  puts "#{wave} -> #{chunk_file}"
-  system("mv #{wave} #{chunk_file}")
+# merge the files
+sequences = []
+combinded.each_with_index do|sequence, i|
+  sequence_file = "#{path}/#{root_name}-#{i}-seq.wav"
+  File.open(sequence_file,"wb") {|f|
+    sequence.each do|chunk|
+      f << File.read("#{path}/#{root_name}.wav.chunk#{chunk}")
+    end
+  }
+  sequences << sequence_file 
+end
+
+#exit
+
+#Dir["#{path}/#{root_name}*.wav.chunk*"].sort_by do|wave|
+#  wave.gsub(/.*\.chunk/,'').to_i
+#end.each do|wave|
+#  puts wave.inspect
+#  chunk_file = wave.gsub(/\.wav/,'') + ".wav"
+sequences.each do|chunk_file|
   system("speech2text #{chunk_file}")
   wave_text = chunk_file.gsub(/\.wav$/,'.json')
   if File.exist?(wave_text)
