@@ -15,8 +15,18 @@ path = File.dirname(input)
 results = []
 confidence = 0
 count = 0
+root_name = File.basename(input).gsub(/\.wav$/,'')
 
-Dir["#{path}/*.wav.chunk*"].sort_by do|wave|
+puts Dir["#{path}/#{root_name}*.wav.chunk*"].inspect
+# it's important that contiguous chunks stay connected otherwise partial words might be sent for transcribing
+chunks = Dir["#{path}/#{root_name}*.wav.chunk*"].sort_by do|wave|
+  wave.gsub(/.*\.chunk/,'').to_i
+end
+puts chunks.inspect
+
+exit
+
+Dir["#{path}/#{root_name}*.wav.chunk*"].sort_by do|wave|
   wave.gsub(/.*\.chunk/,'').to_i
 end.each do|wave|
   puts wave.inspect
