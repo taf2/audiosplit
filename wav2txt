@@ -9,7 +9,7 @@ end
 
 input = ARGV[0]
 
-system("./splitter  #{input}")
+system("./splitter -i #{input} -t 30 -d 0.5")
 path = File.dirname(input)
 
 results = []
@@ -61,6 +61,20 @@ chunks.each do|wave|
   system("mv #{wave} #{chunk_file}")
   system("speech2text #{chunk_file}")
   wave_text = chunk_file.gsub(/\.wav$/,'.json')
+  if File.exist?(wave_text)
+    out = JSON.parse(File.read(wave_text))
+    if out && out['captured_json'] && out['captured_json'].first
+      results << out['captured_json'].first.first
+      confidence += out['confidence']
+      count += 1
+    end
+  end
+end
+
+if chunks.size == 0
+  # send the original file
+  system("speech2text #{input}")
+  wave_text = input.gsub(/\.wav$/,'.json')
   if File.exist?(wave_text)
     out = JSON.parse(File.read(wave_text))
     if out && out['captured_json'] && out['captured_json'].first

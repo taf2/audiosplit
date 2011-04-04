@@ -23,58 +23,65 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sndfile.h>
+#include "splitter.h"
 
-typedef struct _silence_detector {
-	SNDFILE *sndfile;
-	SF_INFO sndfile_info;
-  const char *file_name;
-  int threshold, duration;
-	size_t buffer_size; // read 32 frames at a time?
-	int *buffer;
+#define usage() fprintf(stderr, "usage: splitter -i file.wav -t 30 -d 0.5 -w out.asciiwave\n");
 
-  char *last_chunk_file_name;
+static SilenceDetector* silence_detector_parse_cli(int argc, char **argv) {
+  int ch;
+  double duration = 1; // seconds
+  int threshold = 30;
+  const char *output_wave = NULL;
+  const char *input_wav_file = NULL;
 
-  int chunk_count;
-	SNDFILE *out_sndfile;
-} SilenceDetector;
+  opterr = 0;
 
-static SilenceDetector* silence_detector_new(const char *file, int threshold, int duration);
-static void silence_detector_free(SilenceDetector *ptr);
-static int silence_detector_split_audio(SilenceDetector *ptr);
-static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, sf_count_t soff, sf_count_t *offset);
-static void silence_detector_create_audio_chunk(SilenceDetector *ptr);
-static char* silence_detector_create_chunk_file_name(SilenceDetector *ptr);
-//static silence_detector_write_audio_chunk(SilenceDetector *ptr, sf_count_t 
-static int read_sound_file_duration(const char *filepath);
+  while ((ch = getopt(argc, argv, "i:t:d:w:")) != -1) {
+    printf("ch: %d\n", ch);
+    switch (ch) {
+    case 'i':
+      printf("using input wav file\n");
+      input_wav_file = optarg;
+      break;
+    case 't':
+      printf("using threshold\n");
+      threshold = atoi(optarg);
+      break;
+    case 'd':
+      printf("using duration\n");
+      duration = atof(optarg);
+      break;
+    case 'w':
+      printf("output wave\n");
+      output_wave = optarg;
+      break;
+    case '?':
+    default:
+      usage();
+      exit(0);
+    }
+  }
+  printf("ch: %d\n", ch);
+  argc -= optind;
+  argv += optind;
+
+  if (argc != 0) {
+    usage();
+    exit(1);
+  }
+
+  printf("max silence duration: %.2f\nsilence threshold: %d\noutput wave: %s\n", duration, threshold, output_wave);
+
+  return silence_detector_new(input_wav_file, threshold, duration, output_wave);
+}
 
 int main(int argc, char **argv) {
-  int duration = 1; // seconds
-  int threshold = 30;
 
-	if (argc < 2) {
-		fprintf(stderr, "usage: %s input_file\n", argv[0]);
-		return 1;
-	}
-
-  if (argc > 2) {
-    threshold = atoi(argv[2]);
-    if (threshold < 0 ) {
-      fprintf(stderr, "threshold value %d should be greater than zero!\n", threshold);
-      return 2;
-    }
-  }
-
-  if (argc > 3) {
-    duration = atoi(argv[3]);
-    if (duration < 0) {
-      fprintf(stderr, "duration value %d should be greater than zero!\n", duration);
-      return 3;
-    }
-  }
-
-  SilenceDetector *detector = silence_detector_new(argv[1], threshold, duration);
+  SilenceDetector *detector = silence_detector_parse_cli(argc, argv);
 
   silence_detector_split_audio(detector);
 
@@ -83,7 +90,7 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-static SilenceDetector* silence_detector_new(const char *file, int threshold, int duration) {
+static SilenceDetector* silence_detector_new(const char *file, int threshold, double duration, const char *output_wave) {
   SilenceDetector *ptr = (SilenceDetector*)malloc(sizeof(SilenceDetector));
   memset(ptr, 0, sizeof(SilenceDetector));
 
@@ -98,6 +105,7 @@ static SilenceDetector* silence_detector_new(const char *file, int threshold, in
   ptr->file_name = file;
   ptr->threshold = threshold;
   ptr->duration = duration;
+  ptr->output_wave = output_wave;
 
   /*
   printf("file: %s\n\tframes:\t\t%llu\n\tsamplerate:\t%d\n\tchannels:\t%d\n\tformat:\t\t%d\n\tsections:\t%d\n\tseekable:\t%d\n", file, ptr->sndfile_info.frames,
@@ -110,7 +118,7 @@ static SilenceDetector* silence_detector_new(const char *file, int threshold, in
   // itunes for example will round seconds up... should we do this too?
   printf("duration: %.2f seconds\n", ceil((double)ptr->sndfile_info.frames / (double)ptr->sndfile_info.samplerate));
   */
-	ptr->buffer_size = 1024; // read 32 frames at a time?
+	ptr->buffer_size = 512; // read 16 frames at a time?
 	ptr->buffer = (int*)malloc((ptr->buffer_size*2) * sizeof(int)); // 2x size we are not sure how the frame is being read/written in libsndfile...
 
   return ptr;
@@ -138,12 +146,21 @@ static int silence_detector_split_audio(SilenceDetector *ptr) {
   sf_count_t prev_offset = 0;
   sf_count_t read_frames = 0;
   sf_count_t read_total = 0;
+  FILE *owave = NULL;
+
+  if (ptr->output_wave) {
+    owave = fopen(ptr->output_wave, "wb");
+    if (!owave) {
+      fprintf(stderr, "Error opening output wave file: %s\n", ptr->output_wave);
+      exit(4);
+    }
+  }
 
   silence_detector_create_audio_chunk(ptr);
 
   do {
     prev_offset = offset;
-    read_frames = silence_detector_locate_silence_offset(ptr, offset, &offset);
+    read_frames = silence_detector_locate_silence_offset(ptr, offset, &offset, owave);
     read_total += read_frames;
     //printf("p: %llu, o %llu\n", prev_offset, offset);
     if (prev_offset == offset) {
@@ -152,6 +169,9 @@ static int silence_detector_split_audio(SilenceDetector *ptr) {
   } while (read_frames > 0);
 
 	//printf("\n");
+  if (owave) {
+    fclose(owave);
+  }
 
   return 0;
 }
@@ -179,23 +199,25 @@ static char* silence_detector_create_chunk_file_name(SilenceDetector *ptr) {
   return out_chunk_file_name;
 }
 
-static int read_sound_file_duration(const char *filepath) {
+static double read_sound_file_duration(const char *filepath) {
 	SNDFILE *sndfile;
 	SF_INFO sndfile_info;
-  int duration_in_seconds;
+  double duration;
 
 	sndfile = sf_open(filepath, SFM_READ, &sndfile_info);
   if (sndfile) {
-    duration_in_seconds = (int)ceill( sndfile_info.frames / sndfile_info.samplerate );
+    //duration_in_seconds = (int)ceill( sndfile_info.frames / sndfile_info.samplerate );
+    duration = (double)sndfile_info.frames / (double)sndfile_info.samplerate;
     sf_close(sndfile);
-    return duration_in_seconds;
+    return duration;
   }
 
   return 0;
 }
 
-static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, sf_count_t soff, sf_count_t *offset) {
-	int i, wave_length, avg = 0, chunk_duration;
+static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, sf_count_t soff, sf_count_t *offset, FILE *owave) {
+	int i, j, wave_length, avg = 0;
+  double chunk_duration;
 	sf_count_t read_frames;
 
   memset(ptr->buffer, 0, ptr->buffer_size * sizeof(int));
@@ -204,6 +226,13 @@ static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, s
 	for ( i = 0; i < read_frames; ++i ) {
     wave_length = ptr->buffer[i] / (ptr->sndfile_info.samplerate);
     avg += abs(wave_length);
+    if (owave) {
+      // write out the wave amps
+      for (j = 0; j < wave_length; ++j) {
+        fwrite("+", sizeof(char), 1, owave);
+      }
+      fwrite("\n", sizeof(char), 1, owave);
+    }
 		//printf("%.2d ", wave_length);
 	}
   //printf("r: %llu, avg: %d\n", read_frames, avg);
@@ -232,7 +261,7 @@ static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, s
       // TODO: get the duration of the chunk and compare to the filter duration
       chunk_duration = read_sound_file_duration(ptr->last_chunk_file_name);
       if (chunk_duration < ptr->duration) {
-        printf("chunk %s:%d is smaller than duration: %d\n", ptr->last_chunk_file_name, chunk_duration, ptr->duration);
+        printf("chunk %s:%.2f is smaller than duration: %.2f\n", ptr->last_chunk_file_name, chunk_duration, ptr->duration);
         unlink(ptr->last_chunk_file_name);
       }
     }
