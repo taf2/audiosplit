@@ -1,0 +1,75 @@
+#!/usr/bin/env ruby
+# -*- encoding: binary -*-
+
+require 'rubygems'
+require 'json'
+require 'speech'
+
+$:.unshift File.expand_path(File.join(File.dirname(__FILE__), '/../lib'))
+require 'revision'
+
+if ARGV.size == 0
+  puts "usage #{$0} input.wav"
+  exit 1
+end
+
+input = ARGV[0]
+
+system("./splitter -i #{input} -t 15 -d 0.3 -D 10")
+path = File.dirname(input)
+
+results = []
+confidence = 0
+count = 0
+root_name = File.basename(input).gsub(/\.wav$/,'')
+
+# it's important that contiguous chunks stay connected otherwise partial words might be sent for transcribing
+chunks = Dir["#{path}/#{root_name}*.wav.chunk*"].sort do|a, b|
+  da = a.scan(/(\d+)/)
+  dav = da.flatten.join(".")
+
+  db = b.scan(/(\d+)/)
+  dbv = db.flatten.join(".")
+  
+  Revision.new(dav) <=> Revision.new(dbv)
+end
+
+# now attempt to combine chunks to be as close to 10 seconds as possible
+chunks.each do|chunk|
+  inspector = Speech::AudioInspector.new(chunk)
+  puts inspector.duration.inspect
+end
+exit
+
+chunks.each do|wave|
+  chunk_file = wave.gsub(/\.wav/,'') + ".wav"
+  system("mv #{wave} #{chunk_file}")
+  system("speech2text #{chunk_file}")
+  wave_text = chunk_file.gsub(/\.wav$/,'.json')
+  if File.exist?(wave_text)
+    out = JSON.parse(File.read(wave_text))
+    if out && out['hypotheses'] && !out['hypotheses'].empty?
+      results << out['hypotheses'].first.first
+      confidence += out['hypotheses'].first.last
+      count += 1
+    end
+  end
+end
+
+if chunks.size == 0
+  # send the original file
+  system("speech2text #{input}")
+  wave_text = input.gsub(/\.wav$/,'.json')
+  if File.exist?(wave_text)
+    out = JSON.parse(File.read(wave_text))
+    if out && out['hypotheses'] && !out['hypotheses'].empty?
+      results << out['hypotheses'].first.first
+      confidence += out['hypotheses'].first.last
+      count += 1
+    end
+  end
+end
+
+confidence /= count
+puts results.join(" ")
+puts confidence
