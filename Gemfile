@@ -2,4 +2,4 @@ source :rubygems
 
 gem 'curb'
 gem 'json'
-gem 'speech2text', :path => ENV["HOME"] + "/google-speech-to-text/"
+gem 'speech2text', '0.3.4' #:path => ENV["HOME"] + "/google-speech-to-text/"

@@ -1,15 +1,11 @@
-PATH
-  remote: /Users/taf2/google-speech-to-text
-  specs:
-    speech2text (0.3.4)
-      curb
-      json
-
 GEM
   remote: http://rubygems.org/
   specs:
     curb (0.7.15)
     json (1.5.1)
+    speech2text (0.3.4)
+      curb
+      json
 
 PLATFORMS
   ruby
@@ -17,4 +13,4 @@ PLATFORMS
 DEPENDENCIES
   curb
   json
-  speech2text!
+  speech2text (= 0.3.4)

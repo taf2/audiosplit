@@ -38,7 +38,6 @@ int main(int argc, char **argv) {
   int *buffer = NULL;
   int i = 0;
 
-
   if (argc < 4) {
     fprintf(stderr, "usage: %s a1.wav a2.wav ... out.wav\n", argv[0]);
     return 1;
@@ -47,17 +46,17 @@ int main(int argc, char **argv) {
   memset(&outinfo, 0, sizeof(SF_INFO));
 
   for (i = 1; i < argc-1; ++i ) {
-    printf("scan: %s\n", argv[i]);
+    //printf("scan: %s\n", argv[i]);
     if (update_output_info(argv[i], &outinfo)) {
       return 1;
     }
   }
 
-  printf("%s will be %.2f seconds\n", argv[3], ((double)outinfo.frames / (double)outinfo.samplerate));
+  printf("%s will be %.2f seconds\n", argv[argc-1], ((double)outinfo.frames / (double)outinfo.samplerate));
 
-  out = sf_open(argv[3], SFM_WRITE, &outinfo);
+  out = sf_open(argv[argc-1], SFM_WRITE, &outinfo);
   if (!out) {
-    fprintf(stderr, "unable to write file: %s\n", argv[3]);
+    fprintf(stderr, "unable to write file: %s\n", argv[argc-1]);
     return 3;
   }
 

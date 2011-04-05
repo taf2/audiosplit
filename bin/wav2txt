@@ -15,7 +15,7 @@ end
 
 input = ARGV[0]
 
-system("./splitter -i #{input} -t 15 -d 0.3 -D 10")
+system("./splitter -i #{input} -t 15 -d 0.2 -D 9")
 path = File.dirname(input)
 
 results = []
@@ -35,13 +35,51 @@ chunks = Dir["#{path}/#{root_name}*.wav.chunk*"].sort do|a, b|
 end
 
 # now attempt to combine chunks to be as close to 10 seconds as possible
-chunks.each do|chunk|
+accom = Speech::AudioInspector::Duration.new("00:00:00.00")
+merge_set = [] # array of [chunk,duration]
+merged_chunks = []
+chunks.each_with_index do|chunk, i|
   inspector = Speech::AudioInspector.new(chunk)
-  puts inspector.duration.inspect
-end
-exit
+  stamp = inspector.duration
+  accom = accom + stamp
 
-chunks.each do|wave|
+  puts "check: #{accom}, #{accom.to_f}"
+  merge_set << [chunk, stamp]
+
+  if accom.to_f > 9.0
+    last = merge_set.pop
+
+    accom = Speech::AudioInspector::Duration.new("00:00:00.00")
+    merge_set.each {|s| accom = accom + s.last }
+    merged_list = merge_set.map {|c| c.first }.join(' ')
+    merge_name = "merged_chunk#{i}.wav"
+    puts "\tmerge(#{accom.to_s}): #{merge_set.inspect} as #{merge_name}"
+    if merge_set.size == 1
+      system("cp #{merged_list} #{merge_name}")
+    else
+      system("./merge-wave #{merged_list} #{merge_name}")
+    end
+    merged_chunks << merge_name
+
+    merge_set = [last]
+    accom = Speech::AudioInspector::Duration.from_seconds(last.last.to_f)
+  end
+end
+
+if !merge_set.empty?
+  merged_list = merge_set.map {|c| c.first }.join(' ')
+  merge_name = "merged_chunk_last.wav"
+  system("./merge-wave #{merged_list} #{merge_name}")
+  merged_chunks << merge_name
+end
+puts merged_chunks.inspect
+
+# unlink all chunks
+chunks.each do |chunk|
+  File.unlink(chunk)
+end
+
+merged_chunks.each do|wave|
   chunk_file = wave.gsub(/\.wav/,'') + ".wav"
   system("mv #{wave} #{chunk_file}")
   system("speech2text #{chunk_file}")
