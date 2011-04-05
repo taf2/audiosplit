@@ -29,34 +29,37 @@
 #include <sndfile.h>
 #include "splitter.h"
 
-#define usage() fprintf(stderr, "usage: splitter -i file.wav -t 30 -d 0.5 -w out.asciiwave\n");
+#define usage() fprintf(stderr, "usage: splitter -i file.wav -t 30 -d 8.5 -w out.asciiwave\n");
 
 static SilenceDetector* silence_detector_parse_cli(int argc, char **argv) {
   int ch;
-  double duration = 1; // seconds
+  double max_duration = 10; // seconds
+  double min_duration = 1; // seconds
   int threshold = 30;
+  int buffer_size = 1024;
   const char *output_wave = NULL;
   const char *input_wav_file = NULL;
 
   opterr = 0;
 
-  while ((ch = getopt(argc, argv, "i:t:d:w:")) != -1) {
-    printf("ch: %d\n", ch);
+  while ((ch = getopt(argc, argv, "b:i:t:d:D:w:")) != -1) {
     switch (ch) {
+    case 'b':
+      buffer_size = atoi(optarg);
+      break;
     case 'i':
-      printf("using input wav file\n");
       input_wav_file = optarg;
       break;
     case 't':
-      printf("using threshold\n");
       threshold = atoi(optarg);
       break;
     case 'd':
-      printf("using duration\n");
-      duration = atof(optarg);
+      min_duration = atof(optarg);
+      break;
+    case 'D':
+      max_duration = atof(optarg);
       break;
     case 'w':
-      printf("output wave\n");
       output_wave = optarg;
       break;
     case '?':
@@ -65,7 +68,6 @@ static SilenceDetector* silence_detector_parse_cli(int argc, char **argv) {
       exit(0);
     }
   }
-  printf("ch: %d\n", ch);
   argc -= optind;
   argv += optind;
 
@@ -74,9 +76,9 @@ static SilenceDetector* silence_detector_parse_cli(int argc, char **argv) {
     exit(1);
   }
 
-  printf("max silence duration: %.2f\nsilence threshold: %d\noutput wave: %s\n", duration, threshold, output_wave);
+  printf("chunk constraints: [%.2f, %2.f] seconds\nsilence threshold: %d\noutput wave: %s\n", min_duration, max_duration, threshold, output_wave);
 
-  return silence_detector_new(input_wav_file, threshold, duration, output_wave);
+  return silence_detector_new(input_wav_file, buffer_size, threshold, min_duration, max_duration, output_wave);
 }
 
 int main(int argc, char **argv) {
@@ -90,9 +92,10 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-static SilenceDetector* silence_detector_new(const char *file, int threshold, double duration, const char *output_wave) {
+static SilenceDetector* silence_detector_new(const char *file, size_t buffer_size, int threshold, double min_duration, double max_duration, const char *output_wave) {
   SilenceDetector *ptr = (SilenceDetector*)malloc(sizeof(SilenceDetector));
   memset(ptr, 0, sizeof(SilenceDetector));
+
 
 	ptr->sndfile = sf_open(file, SFM_READ, &(ptr->sndfile_info));
 
@@ -104,7 +107,8 @@ static SilenceDetector* silence_detector_new(const char *file, int threshold, do
 
   ptr->file_name = file;
   ptr->threshold = threshold;
-  ptr->duration = duration;
+  ptr->min_duration = min_duration;
+  ptr->max_duration = max_duration;
   ptr->output_wave = output_wave;
 
   /*
@@ -118,7 +122,7 @@ static SilenceDetector* silence_detector_new(const char *file, int threshold, do
   // itunes for example will round seconds up... should we do this too?
   printf("duration: %.2f seconds\n", ceil((double)ptr->sndfile_info.frames / (double)ptr->sndfile_info.samplerate));
   */
-	ptr->buffer_size = 512; // read 16 frames at a time?
+	ptr->buffer_size = buffer_size; // read 16 frames at a time?
 	ptr->buffer = (int*)malloc((ptr->buffer_size*2) * sizeof(int)); // 2x size we are not sure how the frame is being read/written in libsndfile...
 
   return ptr;
@@ -203,6 +207,7 @@ static double read_sound_file_duration(const char *filepath) {
 	SNDFILE *sndfile;
 	SF_INFO sndfile_info;
   double duration;
+  memset(&sndfile_info, 0, sizeof(SF_INFO));
 
 	sndfile = sf_open(filepath, SFM_READ, &sndfile_info);
   if (sndfile) {
@@ -216,8 +221,8 @@ static double read_sound_file_duration(const char *filepath) {
 }
 
 static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, sf_count_t soff, sf_count_t *offset, FILE *owave) {
-	int i, j, wave_length, avg = 0;
-  double chunk_duration;
+	int i, wave_length, avg = 0;
+  double chunk_duration, rms = 0.0;
 	sf_count_t read_frames;
 
   memset(ptr->buffer, 0, ptr->buffer_size * sizeof(int));
@@ -226,21 +231,22 @@ static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, s
 	for ( i = 0; i < read_frames; ++i ) {
     wave_length = ptr->buffer[i] / (ptr->sndfile_info.samplerate);
     avg += abs(wave_length);
-    if (owave) {
-      // write out the wave amps
-      for (j = 0; j < wave_length; ++j) {
-        fwrite("+", sizeof(char), 1, owave);
-      }
-      fwrite("\n", sizeof(char), 1, owave);
-    }
+    rms += (wave_length * wave_length);
 		//printf("%.2d ", wave_length);
 	}
   //printf("r: %llu, avg: %d\n", read_frames, avg);
 
   if (read_frames > 0 && avg > 0) {
+    rms /= read_frames;
+    rms = sqrt(rms);
+
     avg /= read_frames;
     //printf("\t%d\n", (int)avg);
-    //fflush(stdout);
+//    fflush(stdout);
+    if (owave) {
+      // write out the wave amps
+      fprintf(owave, "\t%.2f\n", rms);
+    }
   }
 
   if (avg > ptr->threshold) {
@@ -258,14 +264,26 @@ static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, s
     if (ptr->out_sndfile) {
       sf_close(ptr->out_sndfile);
       ptr->out_sndfile = NULL;
-      // TODO: get the duration of the chunk and compare to the filter duration
+      // get the duration of the chunk and compare to the filter duration
       chunk_duration = read_sound_file_duration(ptr->last_chunk_file_name);
-      if (chunk_duration < ptr->duration) {
-        printf("chunk %s:%.2f is smaller than duration: %.2f\n", ptr->last_chunk_file_name, chunk_duration, ptr->duration);
+      if (chunk_duration < ptr->min_duration) {
+        printf("chunk %s:%.2f is smaller than min duration: %.2f\n", ptr->last_chunk_file_name, chunk_duration, ptr->min_duration);
         unlink(ptr->last_chunk_file_name);
+      }
+      // the chunk is too long based on the max provided, it will need to be reprocessed with a higher threshold and a smaller window
+      if (chunk_duration > ptr->max_duration) {
+        printf("chunk %s:%.2f is larger than max duration: %.2f\n", ptr->last_chunk_file_name, chunk_duration, ptr->max_duration);
+        // reprocess this chunk on it's own using a higher threshold and a smaller buffer
+        silence_detector_verify_last_chunk_duration(ptr);
       }
     }
   }
 
 	return read_frames;
+}
+
+static void silence_detector_verify_last_chunk_duration(SilenceDetector *ptr) {
+  SilenceDetector *nd = silence_detector_new(ptr->last_chunk_file_name, (ptr->buffer_size / 2), (ptr->threshold + 10), ptr->min_duration, ptr->max_duration, NULL);
+  silence_detector_split_audio(nd);
+  silence_detector_free(nd);
 }

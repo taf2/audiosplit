@@ -9,7 +9,7 @@ end
 
 input = ARGV[0]
 
-system("./splitter -i #{input} -t 30 -d 0.5")
+system("./splitter -i #{input} -t 45 -d 0.3")
 path = File.dirname(input)
 
 results = []
