@@ -44,23 +44,23 @@ static SilenceDetector* silence_detector_parse_cli(int argc, char **argv) {
 
   while ((ch = getopt(argc, argv, "b:i:t:d:D:w:")) != -1) {
     switch (ch) {
-    case 'b':
+    case 'b': // how large of a buffer will impact how many frames we look at for each root means. larger byte buffer more frames are compressed into a single root means square
       buffer_size = atoi(optarg);
       break;
-    case 'i':
+    case 'i': // the input wave audio file to split up by silence break points
       input_wav_file = optarg;
       break;
-    case 't':
+    case 't': // a wave magnitude threshold e.g. anything greater than this value will be considered sound
       threshold = atoi(optarg);
       break;
     case 'd':
-      min_duration = atof(optarg);
+      min_duration = atof(optarg); // if a chunk is created and it is shorter than this length in time it will be discarded as noise
       break;
     case 'D':
-      max_duration = atof(optarg);
+      max_duration = atof(optarg); // if a chunk is created and is greater in length than it will be reprocessed using an increased threshold(t) and decreased byte buffer(b).
       break;
     case 'w':
-      output_wave = optarg;
+      output_wave = optarg; // can be nice to see the wave curve useful when trying to understand the audio file... cat out.audiowave | ruby plot.viz.rb && open out.wave.png
       break;
     case '?':
     default:
@@ -286,4 +286,7 @@ static void silence_detector_verify_last_chunk_duration(SilenceDetector *ptr) {
   SilenceDetector *nd = silence_detector_new(ptr->last_chunk_file_name, (ptr->buffer_size / 2), (ptr->threshold + 10), ptr->min_duration, ptr->max_duration, NULL);
   silence_detector_split_audio(nd);
   silence_detector_free(nd);
+  unlink(ptr->last_chunk_file_name);
+  free(ptr->last_chunk_file_name);
+  ptr->last_chunk_file_name = NULL;
 }
