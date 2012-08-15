@@ -178,10 +178,10 @@ static int silence_detector_split_audio(SilenceDetector *ptr) {
     prev_offset = offset;
     read_frames = silence_detector_locate_silence_offset(ptr, offset, &offset, owave);
     read_total += read_frames;
-    printf("p: %llu, o %llu\n", prev_offset, offset);
-    if (prev_offset == offset) {
-      printf("silence from: %llu to %llu\n", offset, read_total);
-    }
+    //printf("p: %llu, o %llu\n", prev_offset, offset);
+    //if (prev_offset == offset) {
+    //  printf("silence from: %llu to %llu\n", offset, read_total);
+    //}
   } while (read_frames > 0);
 
 	//printf("\n");
@@ -207,11 +207,10 @@ static void silence_detector_create_audio_chunk(SilenceDetector *ptr) {
 }
 
 static char* silence_detector_create_chunk_file_name(SilenceDetector *ptr) {
-  size_t file_name_length = (strlen(ptr->file_name)+1 + strlen("chunk-") + 1 + ptr->chunk_count + 1);
+  size_t file_name_length = (strlen(ptr->file_name)+1 + strlen("chunk-.wav") + 1 + ptr->chunk_count + 1);
   char *out_chunk_file_name = (char*)malloc(file_name_length* sizeof(char));
   memset(out_chunk_file_name, 0, file_name_length);
-  snprintf(out_chunk_file_name, file_name_length, "%s.chunk%d", ptr->file_name, ptr->chunk_count++);
-  printf("create new chunk: %s\n", out_chunk_file_name);
+  snprintf(out_chunk_file_name, file_name_length, "%s.chunk%d.wav", ptr->file_name, ptr->chunk_count++);
   return out_chunk_file_name;
 }
 
@@ -223,8 +222,8 @@ static double read_sound_file_duration(const char *filepath) {
 
 	sndfile = sf_open(filepath, SFM_READ, &sndfile_info);
   if (sndfile) {
-    //duration_in_seconds = (int)ceill( sndfile_info.frames / sndfile_info.samplerate );
-    duration = (double)sndfile_info.frames / (double)sndfile_info.samplerate;
+    duration = ((double)sndfile_info.frames) / ((double)sndfile_info.samplerate);
+    fprintf(stderr, "duration: %.2f, frames: %.2f, rate: %.2f\n", duration, (double)sndfile_info.frames, (double)sndfile_info.samplerate);
     sf_close(sndfile);
     return duration;
   }
@@ -275,9 +274,11 @@ static sf_count_t silence_detector_locate_silence_offset(SilenceDetector *ptr, s
     //printf("starting silence at %llu\n", *offset);
     if (ptr->out_sndfile) {
       sf_close(ptr->out_sndfile);
+
       ptr->out_sndfile = NULL;
       // get the duration of the chunk and compare to the filter duration
       chunk_duration = read_sound_file_duration(ptr->last_chunk_file_name);
+      printf("chunk: %s %.2f sec\n", ptr->last_chunk_file_name, chunk_duration);
       if (chunk_duration < ptr->min_duration) {
         printf("chunk %s:%.2f is smaller than min duration: %.2f\n", ptr->last_chunk_file_name, chunk_duration, ptr->min_duration);
         unlink(ptr->last_chunk_file_name);
