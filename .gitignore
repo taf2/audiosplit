@@ -1,2 +1,6 @@
 splitter
 splitter.dSYM
+*.o
+merge-wave
+out.asciiwave
+out.wave.png

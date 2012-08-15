@@ -29,7 +29,14 @@
 #include <sndfile.h>
 #include "splitter.h"
 
-#define usage() fprintf(stderr, "usage: splitter -i file.wav -t 30 -d 8.5 -w out.asciiwave\n");
+#define usage() fprintf(stderr, "usage: splitter -i file.wav -t 30 -d 8.5 -w out.asciiwave\n" \
+"\t-b: how large of a buffer will impact how many frames we look at for each root means. larger byte buffer more frames are compressed into a single root means square\n" \
+"\t-i: the input wave audio file to split up by silence break points\n" \
+"\t-t: a wave magnitude threshold e.g. anything greater than this value will be considered sound\n" \
+"\t-d: if a chunk is created and it is shorter than this length in time it will be discarded as noise\n" \
+"\t-D: if a chunk is created and is greater in length than it will be reprocessed using an increased threshold(t) and decreased byte buffer(b).\n" \
+"\t-w: can be nice to see the wave curve useful when trying to understand the audio file... cat out.audiowave | ruby plot.viz.rb && open out.wave.png\n" \
+);
 
 static SilenceDetector* silence_detector_parse_cli(int argc, char **argv) {
   int ch;
@@ -42,25 +49,30 @@ static SilenceDetector* silence_detector_parse_cli(int argc, char **argv) {
 
   opterr = 0;
 
+  if (argc < 2) {
+    usage();
+    exit(1);
+  }
+
   while ((ch = getopt(argc, argv, "b:i:t:d:D:w:")) != -1) {
     switch (ch) {
-    case 'b': // how large of a buffer will impact how many frames we look at for each root means. larger byte buffer more frames are compressed into a single root means square
+    case 'b':
       buffer_size = atoi(optarg);
       break;
-    case 'i': // the input wave audio file to split up by silence break points
+    case 'i':
       input_wav_file = optarg;
       break;
-    case 't': // a wave magnitude threshold e.g. anything greater than this value will be considered sound
+    case 't':
       threshold = atoi(optarg);
       break;
     case 'd':
-      min_duration = atof(optarg); // if a chunk is created and it is shorter than this length in time it will be discarded as noise
+      min_duration = atof(optarg);
       break;
     case 'D':
-      max_duration = atof(optarg); // if a chunk is created and is greater in length than it will be reprocessed using an increased threshold(t) and decreased byte buffer(b).
+      max_duration = atof(optarg);
       break;
     case 'w':
-      output_wave = optarg; // can be nice to see the wave curve useful when trying to understand the audio file... cat out.audiowave | ruby plot.viz.rb && open out.wave.png
+      output_wave = optarg;
       break;
     case '?':
     default:
@@ -166,9 +178,9 @@ static int silence_detector_split_audio(SilenceDetector *ptr) {
     prev_offset = offset;
     read_frames = silence_detector_locate_silence_offset(ptr, offset, &offset, owave);
     read_total += read_frames;
-    //printf("p: %llu, o %llu\n", prev_offset, offset);
+    printf("p: %llu, o %llu\n", prev_offset, offset);
     if (prev_offset == offset) {
-      //printf("silence from: %llu to %llu\n", offset, read_total);
+      printf("silence from: %llu to %llu\n", offset, read_total);
     }
   } while (read_frames > 0);
 
